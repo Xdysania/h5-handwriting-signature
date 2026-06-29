@@ -129,9 +129,9 @@ body {
 .canvas-tools__toggle {
   margin: 0;
   padding: 8px 12px;
-  border: none;
+  border: 1px solid var(--ns-color-brand);
   border-radius: var(--ns-radius-xs);
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--ns-color-neutral-700);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
   font-family: var(--ns-font-family);
   font-size: var(--ns-font-size-sm);
@@ -140,6 +140,11 @@ body {
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.canvas-tools__toggle[hidden] {
+  display: none;
 }
 
 .canvas-tools__toggle:active {
@@ -147,16 +152,29 @@ body {
 }
 
 .canvas-tools {
-  display: flex;
+  display: none;
   gap: 8px;
   background: rgba(255, 255, 255, 0.92);
   padding: 6px;
   border-radius: 8px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  transform-origin: top right;
 }
 
-.canvas-tools[hidden] {
-  display: none;
+.canvas-tools-wrap.is-expanded .canvas-tools {
+  display: flex;
+  animation: canvas-tools-expand 0.22s ease-out;
+}
+
+@keyframes canvas-tools-expand {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 .canvas-tools__btn {
@@ -441,7 +459,7 @@ body {
             <button type="button" class="canvas-tools__toggle" id="btnToggleTools" aria-expanded="false" aria-controls="canvasTools">
               更多签署区域
             </button>
-            <div class="canvas-tools" id="canvasTools" hidden>
+            <div class="canvas-tools" id="canvasTools">
               <button type="button" class="canvas-tools__btn" id="btnPanLeft" title="左移" aria-label="左移">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M15 18l-6-6 6-6"/>
@@ -559,6 +577,8 @@ body {
   const scrollbarThumb = document.getElementById('scrollbarThumb');
   /** @type {HTMLElement} */
   const canvasTools = document.getElementById('canvasTools');
+  /** @type {HTMLElement} */
+  const canvasToolsWrap = document.getElementById('canvasToolsWrap');
   /** @type {HTMLButtonElement} */
   const btnToggleTools = document.getElementById('btnToggleTools');
   /** @type {HTMLElement} */
@@ -866,9 +886,27 @@ body {
   }
 
   /**
-   * 扩展画板至 3 倍并展开工具栏
+   * 收起工具栏，恢复「更多签署区域」按钮
    */
-  function extendSigningArea() {
+  function hideToolsPanel() {
+    canvasToolsWrap.classList.remove('is-expanded');
+    btnToggleTools.hidden = false;
+    btnToggleTools.setAttribute('aria-expanded', 'false');
+  }
+
+  /**
+   * 展开工具栏，隐藏「更多签署区域」按钮
+   */
+  function showToolsPanel() {
+    canvasToolsWrap.classList.add('is-expanded');
+    btnToggleTools.hidden = true;
+    btnToggleTools.setAttribute('aria-expanded', 'true');
+  }
+
+  /**
+   * 点击「更多签署区域」：扩展画板并展开工具栏
+   */
+  function openSigningAreaTools() {
     if (!isExtended) {
       isExtended = true;
       updateLogicalWidth();
@@ -951,22 +989,6 @@ body {
       strokeBoundsWidth: boundsW,
       hasStroke: true
     });
-  }
-
-  /**
-   * 收起工具栏
-   */
-  function hideToolsPanel() {
-    canvasTools.hidden = true;
-    btnToggleTools.setAttribute('aria-expanded', 'false');
-  }
-
-  /**
-   * 展开工具栏
-   */
-  function showToolsPanel() {
-    canvasTools.hidden = false;
-    btnToggleTools.setAttribute('aria-expanded', 'true');
   }
 
   /**
@@ -1135,13 +1157,7 @@ body {
 
   btnToggleTools.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (!isExtended) {
-      extendSigningArea();
-    } else if (canvasTools.hidden) {
-      showToolsPanel();
-    } else {
-      hideToolsPanel();
-    }
+    openSigningAreaTools();
   });
 
   document.getElementById('btnRewrite').addEventListener('click', () => {
