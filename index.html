@@ -67,7 +67,7 @@ body {
 .canvas-section {
   flex: 1;
   min-height: 0;
-  padding: 12px 16px 0;
+  padding: 12px 16px 12px;
 }
 
 .canvas-wrapper {
@@ -105,7 +105,7 @@ body {
   left: 50%;
   transform: translate(-50%, -50%);
   color: #bfbfbf;
-  font-size: 18px;
+  font-size: 64px;
   pointer-events: none;
   white-space: nowrap;
 }
@@ -197,29 +197,6 @@ body {
 .canvas-tools__btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
-}
-
-/* 底部位移滚动条 */
-.position-scrollbar {
-  flex-shrink: 0;
-  padding: 8px 0 4px;
-}
-
-.position-scrollbar__track {
-  height: 4px;
-  background: #e8e8e8;
-  border-radius: 2px;
-  position: relative;
-}
-
-.position-scrollbar__thumb {
-  position: absolute;
-  top: 0;
-  height: 100%;
-  background: var(--ns-color-brand);
-  border-radius: 2px;
-  min-width: 24px;
-  transition: left 0.05s linear, width 0.05s linear;
 }
 
 /* 底部操作栏 */
@@ -413,6 +390,11 @@ body {
   white-space: nowrap;
 }
 
+.toast--top {
+  bottom: auto;
+  top: 16px;
+}
+
 .toast[hidden] {
   display: none;
 }
@@ -420,7 +402,7 @@ body {
 /* 横屏优化 */
 @media (orientation: landscape) {
   .canvas-section {
-    padding: 8px 12px 0;
+    padding: 8px 12px 8px;
   }
 
   .action-bar {
@@ -456,7 +438,7 @@ body {
           <!-- 右上角画布工具 -->
           <div class="canvas-tools-wrap" id="canvasToolsWrap">
             <button type="button" class="canvas-tools__toggle" id="btnToggleTools" aria-expanded="false" aria-controls="canvasTools">
-              更多签署区域
+              扩大签署区域
             </button>
             <div class="canvas-tools" id="canvasTools">
               <button type="button" class="canvas-tools__btn" id="btnPanLeft" title="左移" aria-label="左移">
@@ -467,11 +449,6 @@ body {
               <button type="button" class="canvas-tools__btn" id="btnPanRight" title="右移" aria-label="右移" disabled>
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M9 18l6-6-6-6"/>
-                </svg>
-              </button>
-              <button type="button" class="canvas-tools__btn" id="btnResetView" title="恢复默认" aria-label="恢复默认" disabled>
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>
                 </svg>
               </button>
               <button type="button" class="canvas-tools__btn" id="btnFitPreview" title="预览" aria-label="预览" disabled>
@@ -486,13 +463,6 @@ body {
           <div class="canvas-container" id="canvasContainer">
             <canvas id="displayCanvas"></canvas>
             <p class="canvas-placeholder" id="canvasPlaceholder">请在此处签名</p>
-          </div>
-
-          <!-- 底部位移滚动条 -->
-          <div class="position-scrollbar" id="positionScrollbar" hidden>
-            <div class="position-scrollbar__track">
-              <div class="position-scrollbar__thumb" id="scrollbarThumb"></div>
-            </div>
           </div>
         </div>
       </section>
@@ -558,6 +528,9 @@ body {
   /** @type {number} 裁剪安全边距 */
   const CROP_PADDING = 8;
 
+  /** @type {string} 预览退出提示仅首次展示的 localStorage 键 */
+  const PREVIEW_HINT_STORAGE_KEY = 'h5_handwriting_preview_hint_shown';
+
   /** @typedef {{ x: number, y: number }} Point */
   /** @typedef {{ points: Point[] }} Stroke */
 
@@ -570,10 +543,6 @@ body {
 
   /** @type {HTMLElement} */
   const placeholder = document.getElementById('canvasPlaceholder');
-  /** @type {HTMLElement} */
-  const positionScrollbar = document.getElementById('positionScrollbar');
-  /** @type {HTMLElement} */
-  const scrollbarThumb = document.getElementById('scrollbarThumb');
   /** @type {HTMLElement} */
   const canvasTools = document.getElementById('canvasTools');
   /** @type {HTMLElement} */
@@ -591,8 +560,6 @@ body {
   const btnPanLeft = document.getElementById('btnPanLeft');
   /** @type {HTMLButtonElement} */
   const btnPanRight = document.getElementById('btnPanRight');
-  /** @type {HTMLButtonElement} */
-  const btnResetView = document.getElementById('btnResetView');
   /** @type {HTMLButtonElement} */
   const btnFitPreview = document.getElementById('btnFitPreview');
   /** @type {HTMLButtonElement} */
@@ -616,6 +583,13 @@ body {
 
   /** @type {number} 预览适配时的视角缩放（仅影响显示，不影响导出） */
   let viewScale = 1;
+
+  /** @type {number} 预览适配时的屏幕平移（像素） */
+  let viewShiftX = 0;
+  let viewShiftY = 0;
+
+  /** @type {boolean} 是否处于全屏预览适配状态 */
+  let isPreviewFitActive = false;
 
   /** @type {Stroke[]} 全部笔迹 */
   let strokes = [];
@@ -683,6 +657,36 @@ body {
   function exitPreviewFit() {
     viewScale = 1;
     offsetY = 0;
+    viewShiftX = 0;
+    viewShiftY = 0;
+    isPreviewFitActive = false;
+  }
+
+  /**
+   * 退出预览并将触点下的逻辑坐标对齐到当前屏幕位置，避免视角突变
+   * @param {number} canvasX 画布内 X（像素）
+   * @param {number} canvasY 画布内 Y（像素）
+   * @param {Point} anchorLogical 触点对应的逻辑坐标
+   */
+  function exitPreviewFitAtAnchor(canvasX, canvasY, anchorLogical) {
+    exitPreviewFit();
+    offsetX = clampOffsetX(anchorLogical.x - canvasX);
+    offsetY = clampOffsetY(anchorLogical.y - canvasY);
+  }
+
+  /**
+   * @param {number} screenX
+   * @param {number} screenY
+   * @returns {{ canvasX: number, canvasY: number }}
+   */
+  function screenToCanvas(screenX, screenY) {
+    const rect = canvas.getBoundingClientRect();
+    const localX = screenX - rect.left;
+    const localY = screenY - rect.top;
+    return {
+      canvasX: (localX / rect.width) * viewW,
+      canvasY: (localY / rect.height) * viewH
+    };
   }
 
   /**
@@ -704,8 +708,8 @@ body {
     const canvasX = (localX / rect.width) * viewW;
     const canvasY = (localY / rect.height) * viewH;
     return {
-      x: offsetX + canvasX / viewScale,
-      y: Math.max(0, Math.min(getLogicalH(), offsetY + canvasY / viewScale))
+      x: offsetX + (canvasX - viewShiftX) / viewScale,
+      y: Math.max(0, Math.min(getLogicalH(), offsetY + (canvasY - viewShiftY) / viewScale))
     };
   }
 
@@ -735,6 +739,7 @@ body {
   function render() {
     ctx.clearRect(0, 0, viewW, viewH);
     ctx.save();
+    ctx.translate(viewShiftX, viewShiftY);
     ctx.translate(-offsetX * viewScale, -offsetY * viewScale);
     ctx.scale(viewScale, viewScale);
 
@@ -853,35 +858,13 @@ body {
   }
 
   /**
-   * @returns {boolean}
-   */
-  function isDefaultView() {
-    return offsetX === 0 && offsetY === 0 && viewScale === 1;
-  }
-
-  /**
-   * @returns {boolean}
-   */
-  function isViewAdjusted() {
-    return isExtended || !isDefaultView();
-  }
-
-  /**
    * 更新 UI 状态
    */
   function updateUI() {
     const maxOffset = getMaxOffsetX();
     btnPanLeft.disabled = offsetX <= 0.5;
     btnPanRight.disabled = offsetX >= maxOffset - 0.5;
-    btnResetView.disabled = isDefaultView();
     btnFitPreview.disabled = !hasValidStroke();
-
-    if (isViewAdjusted()) {
-      positionScrollbar.hidden = false;
-      updateScrollbar();
-    } else {
-      positionScrollbar.hidden = true;
-    }
 
     placeholder.classList.toggle('is-hidden', hasValidStroke() || (currentStroke && currentStroke.points.length > 0));
 
@@ -890,28 +873,27 @@ body {
   }
 
   /**
-   * 更新底部位移滚动条
-   */
-  function updateScrollbar() {
-    const visibleLogicalW = viewW / viewScale;
-    const thumbRatio = visibleLogicalW / logicalW;
-    const thumbWidth = Math.max(24, thumbRatio * 100);
-    const maxThumbLeft = 100 - thumbRatio * 100;
-    const thumbLeft = getMaxOffsetX() > 0
-      ? (offsetX / getMaxOffsetX()) * maxThumbLeft
-      : 0;
-
-    scrollbarThumb.style.width = thumbWidth + '%';
-    scrollbarThumb.style.left = thumbLeft + '%';
-  }
-
-  /**
    * @param {string} message
+   * @param {'top' | 'bottom'} [position='bottom']
    */
-  function showToast(message) {
+  function showToast(message, position = 'bottom') {
+    toast.classList.toggle('toast--top', position === 'top');
     toast.textContent = message;
     toast.hidden = false;
     setTimeout(() => { toast.hidden = true; }, 2500);
+  }
+
+  /**
+   * 首次进入预览时，在顶部提示如何退出预览
+   */
+  function showPreviewExitHintIfFirstTime() {
+    try {
+      if (localStorage.getItem(PREVIEW_HINT_STORAGE_KEY)) return;
+      localStorage.setItem(PREVIEW_HINT_STORAGE_KEY, '1');
+    } catch (_) {
+      return;
+    }
+    showToast('点击画布退出预览', 'top');
   }
 
   /**
@@ -938,23 +920,13 @@ body {
   function openSigningAreaTools() {
     if (!isExtended) {
       isExtended = true;
+      exitPreviewFit();
       updateLogicalWidth();
       trackEvent('h5_handwriting_canvas_extend', { logicalWidthRatio: LOGICAL_WIDTH_RATIO_EXTENDED });
     }
     showToolsPanel();
-  }
-
-  /**
-   * 恢复默认视角
-   */
-  function resetView() {
-    const fromOffsetX = offsetX;
-    exitPreviewFit();
-    offsetX = 0;
-    hideToolsPanel();
     render();
     updateUI();
-    trackEvent('h5_handwriting_view_reset', { fromOffsetX, hasStroke: hasValidStroke() });
   }
 
   /**
@@ -996,7 +968,7 @@ body {
   }
 
   /**
-   * 预览：将视角缩放平移，完整展示全部已书写区域
+   * 预览：缩放并居中展示全部已书写区域
    */
   function fitViewToStrokes() {
     const bounds = getStrokeBounds();
@@ -1007,23 +979,29 @@ body {
 
     const boundsW = bounds.maxX - bounds.minX;
     const boundsH = bounds.maxY - bounds.minY;
-    const pad = CROP_PADDING * 2;
+    const padScreen = CROP_PADDING;
+    const availW = viewW - padScreen * 2;
+    const availH = viewH - padScreen * 2;
 
-    const scaleX = viewW / Math.max(boundsW + pad, 1);
-    const scaleY = viewH / Math.max(boundsH + pad, 1);
-    viewScale = Math.min(scaleX, scaleY, 1);
+    viewScale = Math.min(availW / boundsW, availH / boundsH, 1);
 
-    const centerX = (bounds.minX + bounds.maxX) / 2;
-    const centerY = (bounds.minY + bounds.maxY) / 2;
+    const scaledW = boundsW * viewScale;
+    const scaledH = boundsH * viewScale;
 
-    offsetX = clampOffsetX(centerX - viewW / (2 * viewScale));
-    offsetY = clampOffsetY(centerY - viewH / (2 * viewScale));
+    offsetX = bounds.minX;
+    offsetY = bounds.minY;
+    viewShiftX = padScreen + Math.max(0, (availW - scaledW) / 2);
+    viewShiftY = padScreen + Math.max(0, (availH - scaledH) / 2);
+    isPreviewFitActive = true;
 
     render();
     updateUI();
+    showPreviewExitHintIfFirstTime();
     trackEvent('h5_handwriting_fit_preview', {
       offsetX,
       offsetY,
+      viewShiftX,
+      viewShiftY,
       viewScale,
       strokeBoundsWidth: boundsW,
       strokeBoundsHeight: boundsH,
@@ -1060,10 +1038,21 @@ body {
     activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     if (activePointers.size === 1) {
+      const { canvasX, canvasY } = screenToCanvas(e.clientX, e.clientY);
+      const logical = screenToLogical(e.clientX, e.clientY);
+
+      if (isPreviewFitActive) {
+        exitPreviewFitAtAnchor(canvasX, canvasY, logical);
+        gestureState = 'idle';
+        currentStroke = null;
+        render();
+        updateUI();
+        return;
+      }
+
       exitPreviewFit();
       offsetX = clampOffsetX(offsetX);
       gestureState = 'drawing';
-      const logical = screenToLogical(e.clientX, e.clientY);
       if (logical.x >= 0 && logical.x <= logicalW && logical.y >= 0 && logical.y <= getLogicalH()) {
         currentStroke = { points: [logical] };
       }
@@ -1185,11 +1174,6 @@ body {
   btnPanRight.addEventListener('click', (e) => {
     e.stopPropagation();
     panByStep(1);
-  });
-
-  btnResetView.addEventListener('click', (e) => {
-    e.stopPropagation();
-    resetView();
   });
 
   btnFitPreview.addEventListener('click', (e) => {
