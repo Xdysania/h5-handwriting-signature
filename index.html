@@ -182,80 +182,6 @@ body {
   cursor: not-allowed;
 }
 
-/* 缩放比例提示 */
-.scale-toast {
-  position: absolute;
-  top: 52px;
-  right: 16px;
-  z-index: 9;
-  padding: 4px 10px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  font-size: 13px;
-  border-radius: 4px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.3s;
-}
-
-.scale-toast.is-visible {
-  opacity: 1;
-}
-
-/* 手势说明面板 */
-.gesture-panel {
-  position: absolute;
-  top: 52px;
-  right: 8px;
-  z-index: 11;
-  width: 260px;
-  background: #fff;
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-  padding: 12px 14px;
-}
-
-.gesture-panel__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 14px;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 10px;
-}
-
-.gesture-panel__close {
-  width: 24px;
-  height: 24px;
-  border: none;
-  background: none;
-  font-size: 20px;
-  color: #999;
-  cursor: pointer;
-  line-height: 1;
-}
-
-.gesture-panel__list {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.gesture-panel__list li {
-  display: flex;
-  gap: 8px;
-  font-size: 13px;
-  color: #666;
-  line-height: 1.5;
-}
-
-.gesture-panel__icon {
-  flex-shrink: 0;
-  font-size: 16px;
-}
-
 /* 底部位移滚动条 */
 .position-scrollbar {
   flex-shrink: 0;
@@ -537,18 +463,6 @@ body {
                 </svg>
               </button>
             </div>
-          </div>
-
-            <ul class="gesture-panel__list">
-              <li>
-                <span class="gesture-panel__icon">🤏</span>
-                <span>双指并拢缩小画布，双指展开放大画布（50% ~ 100%）</span>
-              </li>
-              <li>
-                <span class="gesture-panel__icon">✌️</span>
-                <span>双指左右移动可平移画布视角，获得更长书写空间</span>
-              </li>
-            </ul>
           </div>
 
           <!-- 手写画布容器 -->
