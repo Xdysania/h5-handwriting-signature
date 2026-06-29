@@ -405,7 +405,7 @@ body {
   padding: 10px 20px;
   border-radius: 8px;
   font-size: 14px;
-  z-index: 200;
+  z-index: 300;
   white-space: nowrap;
 }
 
@@ -594,6 +594,9 @@ body {
   const btnToggleTools = document.getElementById('btnToggleTools');
   /** @type {HTMLElement} */
   const toast = document.getElementById('toast');
+
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let toastHideTimer = null;
   /** @type {HTMLElement} */
   const previewModal = document.getElementById('previewModal');
   /** @type {HTMLImageElement} */
