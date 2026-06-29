@@ -516,14 +516,14 @@ body {
               更多签署区域
             </button>
             <div class="canvas-tools" id="canvasTools" hidden>
-              <button type="button" class="canvas-tools__btn" id="btnZoomOut" title="缩小" aria-label="缩小">
+              <button type="button" class="canvas-tools__btn" id="btnPanLeft" title="左移" aria-label="左移">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="11" cy="11" r="8"/><line x1="8" y1="11" x2="14" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                  <path d="M15 18l-6-6 6-6"/>
                 </svg>
               </button>
-              <button type="button" class="canvas-tools__btn" id="btnZoomIn" title="放大" aria-label="放大" disabled>
+              <button type="button" class="canvas-tools__btn" id="btnPanRight" title="右移" aria-label="右移" disabled>
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="11" cy="11" r="8"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                  <path d="M9 18l6-6-6-6"/>
                 </svg>
               </button>
               <button type="button" class="canvas-tools__btn" id="btnResetView" title="恢复默认" aria-label="恢复默认" disabled>
@@ -531,23 +531,14 @@ body {
                   <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>
                 </svg>
               </button>
-              <button type="button" class="canvas-tools__btn" id="btnGestureHelp" title="手势说明" aria-label="手势说明">
+              <button type="button" class="canvas-tools__btn" id="btnFitPreview" title="预览" aria-label="预览" disabled>
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
                 </svg>
               </button>
             </div>
           </div>
 
-          <!-- 缩放比例短暂提示 -->
-          <div class="scale-toast" id="scaleToast" aria-live="polite"></div>
-
-          <!-- 手势说明面板 -->
-          <div class="gesture-panel" id="gesturePanel" hidden>
-            <div class="gesture-panel__header">
-              <span>手势说明</span>
-              <button type="button" class="gesture-panel__close" id="btnCloseGesture" aria-label="关闭">×</button>
-            </div>
             <ul class="gesture-panel__list">
               <li>
                 <span class="gesture-panel__icon">🤏</span>
@@ -601,7 +592,7 @@ body {
     <div class="preview-modal__backdrop" id="previewBackdrop"></div>
     <div class="preview-modal__content">
       <h3>签名预览</h3>
-      <p class="preview-modal__hint">按实际笔迹边界裁剪，不受视角缩放影响</p>
+      <p class="preview-modal__hint">按实际笔迹边界裁剪生成签名图片</p>
       <img id="previewImage" alt="签名预览" />
       <div class="preview-modal__actions">
         <button type="button" class="btn btn--primary" id="btnClosePreview">确定</button>
@@ -614,33 +605,27 @@ body {
 
   <script>
 /**
- * H5 手绘签名画布 - 逻辑画布 2W、双指缩放平移、边界裁剪导出
+ * H5 手绘签名画布 - 扩展画板 3W、左右平移、笔迹适配预览
  * @file signature-canvas.js
  */
 
 (function () {
   'use strict';
 
-  /** @type {number} 逻辑画布宽度倍率 */
-  const LOGICAL_WIDTH_RATIO = 2;
+  /** @type {number} 默认逻辑画布宽度倍率 */
+  const LOGICAL_WIDTH_RATIO_DEFAULT = 1;
 
-  /** @type {number} 最小缩放比例 */
-  const MIN_SCALE = 0.5;
+  /** @type {number} 扩展后逻辑画布宽度倍率 */
+  const LOGICAL_WIDTH_RATIO_EXTENDED = 3;
 
-  /** @type {number} 最大缩放比例 */
-  const MAX_SCALE = 1.0;
-
-  /** @type {number} 按钮缩放步长 */
-  const ZOOM_STEP = 0.1;
+  /** @type {number} 每次平移步长（占可视区宽度比例） */
+  const PAN_STEP_RATIO = 0.5;
 
   /** @type {number} 笔迹线宽（逻辑坐标） */
   const STROKE_LINE_WIDTH = 3;
 
   /** @type {number} 裁剪安全边距 */
   const CROP_PADDING = 8;
-
-  /** @type {number} 缩放提示显示时长（毫秒） */
-  const SCALE_TOAST_DURATION = 1500;
 
   /** @typedef {{ x: number, y: number }} Point */
   /** @typedef {{ points: Point[] }} Stroke */
@@ -659,10 +644,6 @@ body {
   /** @type {HTMLElement} */
   const scrollbarThumb = document.getElementById('scrollbarThumb');
   /** @type {HTMLElement} */
-  const scaleToast = document.getElementById('scaleToast');
-  /** @type {HTMLElement} */
-  const gesturePanel = document.getElementById('gesturePanel');
-  /** @type {HTMLElement} */
   const canvasTools = document.getElementById('canvasTools');
   /** @type {HTMLButtonElement} */
   const btnToggleTools = document.getElementById('btnToggleTools');
@@ -674,11 +655,13 @@ body {
   const previewImage = document.getElementById('previewImage');
 
   /** @type {HTMLButtonElement} */
-  const btnZoomOut = document.getElementById('btnZoomOut');
+  const btnPanLeft = document.getElementById('btnPanLeft');
   /** @type {HTMLButtonElement} */
-  const btnZoomIn = document.getElementById('btnZoomIn');
+  const btnPanRight = document.getElementById('btnPanRight');
   /** @type {HTMLButtonElement} */
   const btnResetView = document.getElementById('btnResetView');
+  /** @type {HTMLButtonElement} */
+  const btnFitPreview = document.getElementById('btnFitPreview');
   /** @type {HTMLButtonElement} */
   const btnComplete = document.getElementById('btnComplete');
 
@@ -686,11 +669,11 @@ body {
   let viewW = 0;
   let viewH = 0;
 
-  /** 逻辑画布宽度 2W */
+  /** 逻辑画布宽度 */
   let logicalW = 0;
 
-  /** @type {number} 当前缩放比例 0.5 ~ 1.0 */
-  let scale = 1.0;
+  /** @type {boolean} 是否已扩展为 3 倍画板 */
+  let isExtended = false;
 
   /** @type {number} 视角水平偏移（逻辑坐标） */
   let offsetX = 0;
@@ -701,38 +684,38 @@ body {
   /** @type {Stroke | null} 当前正在绘制的笔迹 */
   let currentStroke = null;
 
-  /** @type {'idle' | 'drawing' | 'pinching'} */
+  /** @type {'idle' | 'drawing' | 'panning'} */
   let gestureState = 'idle';
 
   /** @type {Map<number, { x: number, y: number }>} */
   const activePointers = new Map();
 
   /**
-   * @typedef {Object} PinchStartState
-   * @property {number} distance
-   * @property {number} scale
+   * @typedef {Object} PanStartState
    * @property {number} offsetX
    * @property {{ x: number, y: number }} centerScreen
-   * @property {number} centerLogicalX
    */
 
-  /** @type {PinchStartState | null} 双指手势起始状态 */
-  let pinchStart = null;
-
-  /** @type {ReturnType<typeof setTimeout> | null} */
-  let scaleToastTimer = null;
+  /** @type {PanStartState | null} */
+  let panStart = null;
 
   /**
-   * 获取当前缩放下最大水平偏移
-   * @returns {number}
+   * 更新逻辑画布宽度
    */
-  function getMaxOffsetX() {
-    const visibleLogicalW = viewW / scale;
-    return Math.max(0, logicalW - visibleLogicalW);
+  function updateLogicalWidth() {
+    logicalW = viewW * (isExtended ? LOGICAL_WIDTH_RATIO_EXTENDED : LOGICAL_WIDTH_RATIO_DEFAULT);
+    offsetX = clampOffsetX(offsetX);
   }
 
   /**
-   * 将偏移限制在合法范围
+   * 获取当前最大水平偏移
+   * @returns {number}
+   */
+  function getMaxOffsetX() {
+    return Math.max(0, logicalW - viewW);
+  }
+
+  /**
    * @param {number} x
    * @returns {number}
    */
@@ -741,26 +724,6 @@ body {
   }
 
   /**
-   * 缩小时将默认书写区（宽 W）居中于屏幕，并向右侧扩展可视空间
-   * @returns {number} 屏幕像素级水平补偿偏移
-   */
-  function getViewAlignShiftX() {
-    if (scale >= MAX_SCALE - 0.001) return 0;
-
-    const visibleW = viewW / scale;
-    const idealOffset = viewW / 2 - visibleW / 2;
-    if (idealOffset >= 0) return 0;
-
-    let shift = -idealOffset * scale;
-    const logicalRightOnScreen = logicalW * scale + shift - offsetX * scale;
-    if (logicalRightOnScreen > viewW) {
-      shift = viewW - logicalW * scale + offsetX * scale;
-    }
-    return Math.max(0, shift);
-  }
-
-  /**
-   * 逻辑画布高度（固定为可视区高度 H）
    * @returns {number}
    */
   function getLogicalH() {
@@ -768,7 +731,6 @@ body {
   }
 
   /**
-   * 屏幕坐标转逻辑画布坐标
    * @param {number} screenX
    * @param {number} screenY
    * @returns {Point}
@@ -779,10 +741,9 @@ body {
     const localY = screenY - rect.top;
     const canvasX = (localX / rect.width) * viewW;
     const canvasY = (localY / rect.height) * viewH;
-    const alignShift = getViewAlignShiftX();
     return {
-      x: offsetX + (canvasX - alignShift) / scale,
-      y: Math.max(0, Math.min(getLogicalH(), canvasY / scale))
+      x: offsetX + canvasX,
+      y: Math.max(0, Math.min(getLogicalH(), canvasY))
     };
   }
 
@@ -793,7 +754,7 @@ body {
     const rect = container.getBoundingClientRect();
     viewW = rect.width;
     viewH = rect.height;
-    logicalW = viewW * LOGICAL_WIDTH_RATIO;
+    updateLogicalWidth();
 
     const dpr = window.devicePixelRatio || 1;
     canvas.width = viewW * dpr;
@@ -802,7 +763,6 @@ body {
     canvas.style.height = viewH + 'px';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    offsetX = clampOffsetX(offsetX);
     render();
     updateUI();
   }
@@ -813,10 +773,7 @@ body {
   function render() {
     ctx.clearRect(0, 0, viewW, viewH);
     ctx.save();
-
-    const alignShift = getViewAlignShiftX();
-    ctx.translate(alignShift - offsetX * scale, 0);
-    ctx.scale(scale, scale);
+    ctx.translate(-offsetX, 0);
 
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -848,7 +805,6 @@ body {
   }
 
   /**
-   * 是否存在有效笔迹
    * @returns {boolean}
    */
   function hasValidStroke() {
@@ -856,7 +812,6 @@ body {
   }
 
   /**
-   * 计算全部笔迹边界
    * @returns {{ minX: number, minY: number, maxX: number, maxY: number } | null}
    */
   function getStrokeBounds() {
@@ -888,8 +843,7 @@ body {
   }
 
   /**
-   * 按笔迹边界裁剪生成签名图片
-   * @returns {string | null} data URL
+   * @returns {string | null}
    */
   function exportSignatureImage() {
     const bounds = getStrokeBounds();
@@ -936,28 +890,28 @@ body {
   }
 
   /**
-   * 是否为默认视角
    * @returns {boolean}
    */
   function isDefaultView() {
-    return scale === MAX_SCALE && offsetX === 0;
+    return offsetX === 0;
   }
 
   /**
-   * 是否已调整过视图
    * @returns {boolean}
    */
   function isViewAdjusted() {
-    return !isDefaultView();
+    return isExtended || offsetX > 0;
   }
 
   /**
-   * 更新工具按钮、滚动条、占位符状态
+   * 更新 UI 状态
    */
   function updateUI() {
-    btnZoomOut.disabled = scale <= MIN_SCALE + 0.001;
-    btnZoomIn.disabled = scale >= MAX_SCALE - 0.001;
+    const maxOffset = getMaxOffsetX();
+    btnPanLeft.disabled = offsetX >= maxOffset - 0.5;
+    btnPanRight.disabled = offsetX <= 0.5;
     btnResetView.disabled = isDefaultView();
+    btnFitPreview.disabled = !hasValidStroke();
 
     if (isViewAdjusted()) {
       positionScrollbar.hidden = false;
@@ -976,7 +930,7 @@ body {
    * 更新底部位移滚动条
    */
   function updateScrollbar() {
-    const visibleLogicalW = viewW / scale;
+    const visibleLogicalW = viewW;
     const thumbRatio = visibleLogicalW / logicalW;
     const thumbWidth = Math.max(24, thumbRatio * 100);
     const maxThumbLeft = 100 - thumbRatio * 100;
@@ -989,36 +943,6 @@ body {
   }
 
   /**
-   * 显示缩放比例提示
-   * @param {number} currentScale
-   */
-  function showScaleToast(currentScale) {
-    if (currentScale >= MAX_SCALE - 0.001) {
-      hideScaleToast();
-      return;
-    }
-
-    const percent = Math.round(currentScale * 100);
-    scaleToast.textContent = percent + '%';
-    scaleToast.classList.add('is-visible');
-
-    if (scaleToastTimer) clearTimeout(scaleToastTimer);
-    scaleToastTimer = setTimeout(hideScaleToast, SCALE_TOAST_DURATION);
-  }
-
-  /**
-   * 隐藏缩放比例提示
-   */
-  function hideScaleToast() {
-    scaleToast.classList.remove('is-visible');
-    if (scaleToastTimer) {
-      clearTimeout(scaleToastTimer);
-      scaleToastTimer = null;
-    }
-  }
-
-  /**
-   * 显示 Toast 消息
    * @param {string} message
    */
   function showToast(message) {
@@ -1028,112 +952,103 @@ body {
   }
 
   /**
-   * 恢复默认视角（不清空笔迹）
+   * 扩展画板至 3 倍并展开工具栏
    */
-  function resetView() {
-    const fromScale = scale;
-    const fromOffsetX = offsetX;
-    scale = MAX_SCALE;
-    offsetX = 0;
-    hideScaleToast();
-    hideGesturePanel();
-    render();
-    updateUI();
-    trackEvent('h5_handwriting_view_reset', {
-      fromScale,
-      fromOffsetX,
-      hasStroke: hasValidStroke()
-    });
+  function extendSigningArea() {
+    if (!isExtended) {
+      isExtended = true;
+      updateLogicalWidth();
+      trackEvent('h5_handwriting_canvas_extend', { logicalWidthRatio: LOGICAL_WIDTH_RATIO_EXTENDED });
+    }
+    showToolsPanel();
   }
 
   /**
-   * 清空笔迹并重置视角
+   * 恢复默认视角
+   */
+  function resetView() {
+    const fromOffsetX = offsetX;
+    offsetX = 0;
+    hideToolsPanel();
+    render();
+    updateUI();
+    trackEvent('h5_handwriting_view_reset', { fromOffsetX, hasStroke: hasValidStroke() });
+  }
+
+  /**
+   * 清空笔迹并重置
    */
   function rewrite() {
     strokes = [];
     currentStroke = null;
     gestureState = 'idle';
     activePointers.clear();
-    scale = MAX_SCALE;
+    isExtended = false;
     offsetX = 0;
-    hideScaleToast();
-    hideGesturePanel();
+    updateLogicalWidth();
     hideToolsPanel();
     render();
     updateUI();
-    trackEvent('h5_handwriting_rewrite', {
-      hasStroke: false,
-      scale,
-      offsetX
-    });
+    trackEvent('h5_handwriting_rewrite', { hasStroke: false, offsetX });
   }
 
   /**
-   * 按步长缩放
-   * @param {number} delta 正数放大，负数缩小
+   * 左右平移视角
+   * @param {number} direction 正数左移（看右侧），负数右移（看左侧）
    */
-  function zoomByStep(delta) {
-    const visibleW = viewW / scale;
-    const viewportCenter = offsetX + visibleW / 2;
-    /** 默认视角缩小时，以初始书写区中心为锚点，保证内容居中且向右扩展 */
-    const defaultZoneCenter = viewW / 2;
-    const centerLogicalX = (delta < 0 && offsetX === 0)
-      ? defaultZoneCenter
-      : viewportCenter;
+  function panByStep(direction) {
+    const step = viewW * PAN_STEP_RATIO;
+    const prevOffset = offsetX;
+    offsetX = clampOffsetX(offsetX + direction * step);
+    if (Math.abs(offsetX - prevOffset) < 0.5) return;
 
-    const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, Math.round((scale + delta) * 10) / 10));
-    if (newScale === scale) return;
-
-    const fromScale = scale;
-    zoomAt(newScale, centerLogicalX);
-
-    showScaleToast(scale);
     render();
     updateUI();
-    trackEvent('h5_handwriting_canvas_zoom', {
-      fromScale,
-      toScale: scale,
+    trackEvent('h5_handwriting_canvas_pan', {
+      fromOffsetX: prevOffset,
+      toOffsetX: offsetX,
       hasStroke: hasValidStroke()
     });
   }
 
   /**
-   * 以指定逻辑坐标为中心缩放
-   * @param {number} newScale
-   * @param {number} centerLogicalX
+   * 将画布视角适配到已书写笔迹区域
    */
-  function zoomAt(newScale, centerLogicalX) {
-    const clampedScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
-    const screenCenterX = (centerLogicalX - offsetX) * scale;
-    offsetX = centerLogicalX - screenCenterX / clampedScale;
-    scale = clampedScale;
-    offsetX = clampOffsetX(offsetX);
+  function fitViewToStrokes() {
+    const bounds = getStrokeBounds();
+    if (!bounds) {
+      showToast('请先签名');
+      return;
+    }
+
+    const boundsW = bounds.maxX - bounds.minX;
+    const pad = CROP_PADDING;
+
+    if (boundsW <= viewW) {
+      offsetX = clampOffsetX((bounds.minX + bounds.maxX) / 2 - viewW / 2);
+    } else {
+      offsetX = clampOffsetX(bounds.minX - pad);
+    }
+
+    render();
+    updateUI();
+    trackEvent('h5_handwriting_fit_preview', {
+      offsetX,
+      strokeBoundsWidth: boundsW,
+      hasStroke: true
+    });
   }
 
   /**
-   * 计算两指中心与距离
-   * @param {Point} p1
-   * @param {Point} p2
-   * @returns {{ center: Point, distance: number }}
-   */
-  function getPinchMetrics(p1, p2) {
-    return {
-      center: { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 },
-      distance: Math.hypot(p2.x - p1.x, p2.y - p1.y)
-    };
-  }
-
-  /**
-   * 收起画布操作工具栏
+   * 收起工具栏
    */
   function hideToolsPanel() {
     canvasTools.hidden = true;
     btnToggleTools.setAttribute('aria-expanded', 'false');
-    hideGesturePanel();
   }
 
   /**
-   * 展开画布操作工具栏
+   * 展开工具栏
    */
   function showToolsPanel() {
     canvasTools.hidden = false;
@@ -1141,32 +1056,6 @@ body {
   }
 
   /**
-   * 切换画布操作工具栏
-   */
-  function toggleToolsPanel() {
-    if (canvasTools.hidden) {
-      showToolsPanel();
-    } else {
-      hideToolsPanel();
-    }
-  }
-
-  /**
-   * 隐藏手势说明面板
-   */
-  function hideGesturePanel() {
-    gesturePanel.hidden = true;
-  }
-
-  /**
-   * 显示手势说明面板
-   */
-  function showGesturePanel() {
-    gesturePanel.hidden = false;
-  }
-
-  /**
-   * 埋点（演示用 console）
    * @param {string} event
    * @param {Record<string, unknown>} params
    */
@@ -1175,14 +1064,11 @@ body {
   }
 
   /**
-   * 阻止默认触摸行为
    * @param {Event} e
    */
   function preventDefault(e) {
     e.preventDefault();
   }
-
-  // ─── 指针事件处理 ───
 
   /**
    * @param {PointerEvent} e
@@ -1196,9 +1082,7 @@ body {
 
     container.setPointerCapture(e.pointerId);
     activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    hideGesturePanel();
     hideToolsPanel();
-    hideScaleToast();
 
     if (activePointers.size === 1) {
       gestureState = 'drawing';
@@ -1211,17 +1095,12 @@ body {
         strokes.push(currentStroke);
       }
       currentStroke = null;
-      gestureState = 'pinching';
+      gestureState = 'panning';
 
       const points = Array.from(activePointers.values());
-      const metrics = getPinchMetrics(points[0], points[1]);
-      const centerLogical = screenToLogical(metrics.center.x, metrics.center.y);
-      pinchStart = {
-        distance: metrics.distance,
-        scale,
+      panStart = {
         offsetX,
-        centerScreen: { x: metrics.center.x, y: metrics.center.y },
-        centerLogicalX: centerLogical.x
+        centerScreen: { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 }
       };
     } else if (activePointers.size > 2) {
       if (currentStroke && currentStroke.points.length > 0) {
@@ -1257,33 +1136,18 @@ body {
       }
       render();
       updateUI();
-    } else if (gestureState === 'pinching' && activePointers.size === 2 && pinchStart) {
+    } else if (gestureState === 'panning' && activePointers.size === 2 && panStart) {
       const points = Array.from(activePointers.values());
-      const metrics = getPinchMetrics(points[0], points[1]);
-      const distanceChange = Math.abs(metrics.distance - pinchStart.distance);
-      const panDx = metrics.center.x - pinchStart.centerScreen.x;
+      const centerX = (points[0].x + points[1].x) / 2;
+      const panDx = centerX - panStart.centerScreen.x;
 
-      if (distanceChange > 8) {
-        const fromScale = scale;
-        const scaleRatio = metrics.distance / pinchStart.distance;
-        const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, pinchStart.scale * scaleRatio));
-        zoomAt(newScale, pinchStart.centerLogicalX);
-        showScaleToast(scale);
-        if (Math.abs(fromScale - scale) > 0.001) {
-          trackEvent('h5_handwriting_canvas_zoom', {
-            fromScale,
-            toScale: scale,
-            hasStroke: hasValidStroke()
-          });
-        }
-      } else if (Math.abs(panDx) > 2) {
+      if (Math.abs(panDx) > 2) {
         const prevOffset = offsetX;
-        offsetX = clampOffsetX(pinchStart.offsetX - panDx / scale);
+        offsetX = clampOffsetX(panStart.offsetX - panDx);
         if (Math.abs(offsetX - prevOffset) > 0.5) {
           trackEvent('h5_handwriting_canvas_pan', {
             fromOffsetX: prevOffset,
             toOffsetX: offsetX,
-            scale,
             hasStroke: hasValidStroke()
           });
         }
@@ -1312,14 +1176,14 @@ body {
       }
       currentStroke = null;
       gestureState = 'idle';
-    } else if (gestureState === 'pinching' && activePointers.size < 2) {
-      pinchStart = null;
-      gestureState = activePointers.size === 1 ? 'idle' : 'idle';
+    } else if (gestureState === 'panning' && activePointers.size < 2) {
+      panStart = null;
+      gestureState = 'idle';
     }
 
     if (activePointers.size === 0) {
       gestureState = 'idle';
-      pinchStart = null;
+      panStart = null;
     }
 
     render();
@@ -1335,21 +1199,36 @@ body {
 
   // ─── 按钮事件 ───
 
-  btnZoomOut.addEventListener('click', () => zoomByStep(-ZOOM_STEP));
-  btnZoomIn.addEventListener('click', () => zoomByStep(ZOOM_STEP));
-  btnResetView.addEventListener('click', resetView);
+  btnPanLeft.addEventListener('click', (e) => {
+    e.stopPropagation();
+    panByStep(1);
+  });
+
+  btnPanRight.addEventListener('click', (e) => {
+    e.stopPropagation();
+    panByStep(-1);
+  });
+
+  btnResetView.addEventListener('click', (e) => {
+    e.stopPropagation();
+    resetView();
+  });
+
+  btnFitPreview.addEventListener('click', (e) => {
+    e.stopPropagation();
+    fitViewToStrokes();
+  });
 
   btnToggleTools.addEventListener('click', (e) => {
     e.stopPropagation();
-    toggleToolsPanel();
+    if (!isExtended) {
+      extendSigningArea();
+    } else if (canvasTools.hidden) {
+      showToolsPanel();
+    } else {
+      hideToolsPanel();
+    }
   });
-
-  document.getElementById('btnGestureHelp').addEventListener('click', (e) => {
-    e.stopPropagation();
-    gesturePanel.hidden ? showGesturePanel() : hideGesturePanel();
-  });
-
-  document.getElementById('btnCloseGesture').addEventListener('click', hideGesturePanel);
 
   document.getElementById('btnRewrite').addEventListener('click', () => {
     if (hasValidStroke() && !confirm('确定要清空当前签名并重新书写吗？')) return;
@@ -1357,8 +1236,6 @@ body {
   });
 
   document.getElementById('btnComplete').addEventListener('click', () => {
-    hideScaleToast();
-    hideGesturePanel();
     hideToolsPanel();
 
     if (!hasValidStroke()) {
@@ -1374,11 +1251,10 @@ body {
 
     const bounds = getStrokeBounds();
     trackEvent('h5_handwriting_complete', {
-      scale,
       offsetX,
       strokeBoundsWidth: bounds ? bounds.maxX - bounds.minX : 0,
       strokeBoundsHeight: bounds ? bounds.maxY - bounds.minY : 0,
-      isOutOfViewport: bounds ? (bounds.minX < offsetX || bounds.maxX > offsetX + viewW / scale) : false,
+      isOutOfViewport: bounds ? (bounds.minX < offsetX || bounds.maxX > offsetX + viewW) : false,
       cropApplied: true
     });
 
@@ -1401,7 +1277,6 @@ body {
 
   container.addEventListener('click', (e) => {
     if (e.target === container || e.target === canvas) {
-      hideGesturePanel();
       hideToolsPanel();
     }
   });
@@ -1412,8 +1287,6 @@ body {
       hideToolsPanel();
     }
   });
-
-  // ─── 触摸防护 ───
 
   container.addEventListener('touchstart', preventDefault, { passive: false });
   container.addEventListener('touchmove', preventDefault, { passive: false });
@@ -1429,7 +1302,6 @@ body {
 
   window.addEventListener('resize', resizeCanvas);
 
-  // 初始化
   resizeCanvas();
   updateUI();
 })();
