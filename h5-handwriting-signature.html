@@ -842,8 +842,8 @@ body {
    */
   function updateUI() {
     const maxOffset = getMaxOffsetX();
-    btnPanLeft.disabled = offsetX >= maxOffset - 0.5;
-    btnPanRight.disabled = offsetX <= 0.5;
+    btnPanLeft.disabled = offsetX <= 0.5;
+    btnPanRight.disabled = offsetX >= maxOffset - 0.5;
     btnResetView.disabled = isDefaultView();
     btnFitPreview.disabled = !hasValidStroke();
 
@@ -946,7 +946,7 @@ body {
 
   /**
    * 左右平移视角
-   * @param {number} direction 正数左移（看右侧），负数右移（看左侧）
+   * @param {number} direction 正数右移视角，负数左移视角
    */
   function panByStep(direction) {
     const step = viewW * PAN_STEP_RATIO;
@@ -1137,12 +1137,12 @@ body {
 
   btnPanLeft.addEventListener('click', (e) => {
     e.stopPropagation();
-    panByStep(1);
+    panByStep(-1);
   });
 
   btnPanRight.addEventListener('click', (e) => {
     e.stopPropagation();
-    panByStep(-1);
+    panByStep(1);
   });
 
   btnResetView.addEventListener('click', (e) => {
