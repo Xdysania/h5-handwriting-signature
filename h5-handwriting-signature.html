@@ -701,6 +701,25 @@ body {
   }
 
   /**
+   * 缩小时将默认书写区（宽 W）居中于屏幕，并向右侧扩展可视空间
+   * @returns {number} 屏幕像素级水平补偿偏移
+   */
+  function getViewAlignShiftX() {
+    if (scale >= MAX_SCALE - 0.001) return 0;
+
+    const visibleW = viewW / scale;
+    const idealOffset = viewW / 2 - visibleW / 2;
+    if (idealOffset >= 0) return 0;
+
+    let shift = -idealOffset * scale;
+    const logicalRightOnScreen = logicalW * scale + shift - offsetX * scale;
+    if (logicalRightOnScreen > viewW) {
+      shift = viewW - logicalW * scale + offsetX * scale;
+    }
+    return Math.max(0, shift);
+  }
+
+  /**
    * 逻辑画布高度（固定为可视区高度 H）
    * @returns {number}
    */
@@ -720,8 +739,9 @@ body {
     const localY = screenY - rect.top;
     const canvasX = (localX / rect.width) * viewW;
     const canvasY = (localY / rect.height) * viewH;
+    const alignShift = getViewAlignShiftX();
     return {
-      x: offsetX + canvasX / scale,
+      x: offsetX + (canvasX - alignShift) / scale,
       y: Math.max(0, Math.min(getLogicalH(), canvasY / scale))
     };
   }
@@ -754,7 +774,8 @@ body {
     ctx.clearRect(0, 0, viewW, viewH);
     ctx.save();
 
-    ctx.translate(-offsetX * scale, 0);
+    const alignShift = getViewAlignShiftX();
+    ctx.translate(alignShift - offsetX * scale, 0);
     ctx.scale(scale, scale);
 
     ctx.lineCap = 'round';
@@ -1011,14 +1032,19 @@ body {
    * @param {number} delta 正数放大，负数缩小
    */
   function zoomByStep(delta) {
-    const centerLogicalX = offsetX + (viewW / scale) / 2;
+    const visibleW = viewW / scale;
+    const viewportCenter = offsetX + visibleW / 2;
+    /** 默认视角缩小时，以初始书写区中心为锚点，保证内容居中且向右扩展 */
+    const defaultZoneCenter = viewW / 2;
+    const centerLogicalX = (delta < 0 && offsetX === 0)
+      ? defaultZoneCenter
+      : viewportCenter;
+
     const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, Math.round((scale + delta) * 10) / 10));
     if (newScale === scale) return;
 
     const fromScale = scale;
-    scale = newScale;
-    const visibleW = viewW / scale;
-    offsetX = clampOffsetX(centerLogicalX - visibleW / 2);
+    zoomAt(newScale, centerLogicalX);
 
     showScaleToast(scale);
     render();
