@@ -153,11 +153,14 @@ body {
 .canvas-tools {
   display: none;
   gap: 8px;
+  transform-origin: top right;
+}
+
+.canvas-floating-panel {
   background: rgba(255, 255, 255, 0.92);
   padding: 6px;
   border-radius: 8px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-  transform-origin: top right;
 }
 
 .canvas-tools-wrap.is-expanded .canvas-tools {
@@ -181,7 +184,7 @@ body {
   height: 36px;
   border: none;
   border-radius: 6px;
-  background: #f5f5f5;
+  background: transparent;
   color: #333;
   cursor: pointer;
   display: flex;
@@ -191,12 +194,21 @@ body {
 }
 
 .canvas-tools__btn:active:not(:disabled) {
-  background: #e8e8e8;
+  background: #f5f5f5;
 }
 
 .canvas-tools__btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+
+/* 签署区右下角撤销 */
+.canvas-undo-wrap {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 10;
+  display: flex;
 }
 
 /* 底部操作栏 */
@@ -440,7 +452,7 @@ body {
             <button type="button" class="canvas-tools__toggle" id="btnToggleTools" aria-expanded="false" aria-controls="canvasTools">
               扩大签署区域
             </button>
-            <div class="canvas-tools" id="canvasTools">
+            <div class="canvas-tools canvas-floating-panel" id="canvasTools">
               <button type="button" class="canvas-tools__btn" id="btnPanLeft" title="左移" aria-label="左移">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M15 18l-6-6 6-6"/>
@@ -463,6 +475,13 @@ body {
           <div class="canvas-container" id="canvasContainer">
             <canvas id="displayCanvas"></canvas>
             <p class="canvas-placeholder" id="canvasPlaceholder">请在此处签名</p>
+            <div class="canvas-undo-wrap canvas-floating-panel">
+              <button type="button" class="canvas-tools__btn" id="btnUndo" title="撤销" aria-label="撤销" disabled>
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
+                  <path d="M18.172 7H11C9.4087 7 7.88258 7.63214 6.75736 8.75736C5.63214 9.88258 5 11.4087 5 13C5 14.5913 5.63214 16.1174 6.75736 17.2426C7.88258 18.3679 9.4087 19 11 19H20V21H11C8.87827 21 6.84344 20.1571 5.34315 18.6569C3.84285 17.1566 3 15.1217 3 13C3 10.8783 3.84285 8.84344 5.34315 7.34315C6.84344 5.84286 8.87827 5 11 5H18.172L15.636 2.464L17.05 1.05L22 6L17.05 10.95L15.636 9.536L18.172 7Z" fill="currentColor"/>
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -506,7 +525,7 @@ body {
 
   <script>
 /**
- * H5 手绘签名画布 - 扩展画板 3W、左右平移、笔迹适配预览
+ * H5 手绘签名画布 - 扩展画板 5W、左右平移、笔迹适配预览
  * @file signature-canvas.js
  */
 
@@ -517,7 +536,7 @@ body {
   const LOGICAL_WIDTH_RATIO_DEFAULT = 1;
 
   /** @type {number} 扩展后逻辑画布宽度倍率 */
-  const LOGICAL_WIDTH_RATIO_EXTENDED = 3;
+  const LOGICAL_WIDTH_RATIO_EXTENDED = 5;
 
   /** @type {number} 每次平移步长（占可视区宽度比例） */
   const PAN_STEP_RATIO = 0.5;
@@ -530,6 +549,21 @@ body {
 
   /** @type {string} 预览退出提示仅首次展示的 localStorage 键 */
   const PREVIEW_HINT_STORAGE_KEY = 'h5_handwriting_preview_hint_shown';
+
+  /** @type {string} 扩大签署区域双指平移提示仅首次展示的 localStorage 键 */
+  const EXTEND_PAN_HINT_STORAGE_KEY = 'h5_handwriting_extend_pan_hint_shown';
+
+  /** @type {number} 扩大区域下等待第二指落下的容错时间（毫秒） */
+  const TWO_FINGER_GRACE_MS = 220;
+
+  /** @type {number} 开始落笔所需的最小屏幕位移（像素） */
+  const MIN_DRAW_START_SCREEN_PX = 8;
+
+  /** @type {number} 提交笔迹所需的最小路径长度（逻辑坐标） */
+  const MIN_STROKE_COMMIT_DISTANCE = 8;
+
+  /** @type {number} 认定为双指平移的最小两指间距（像素） */
+  const MIN_TWO_FINGER_SPAN_PX = 20;
 
   /** @typedef {{ x: number, y: number }} Point */
   /** @typedef {{ points: Point[] }} Stroke */
@@ -563,6 +597,8 @@ body {
   /** @type {HTMLButtonElement} */
   const btnFitPreview = document.getElementById('btnFitPreview');
   /** @type {HTMLButtonElement} */
+  const btnUndo = document.getElementById('btnUndo');
+  /** @type {HTMLButtonElement} */
   const btnComplete = document.getElementById('btnComplete');
 
   /** 可视区尺寸 W × H */
@@ -572,7 +608,7 @@ body {
   /** 逻辑画布宽度 */
   let logicalW = 0;
 
-  /** @type {boolean} 是否已扩展为 3 倍画板 */
+  /** @type {boolean} 是否已扩展为 5 倍画板 */
   let isExtended = false;
 
   /** @type {number} 视角水平偏移（逻辑坐标） */
@@ -597,11 +633,23 @@ body {
   /** @type {Stroke | null} 当前正在绘制的笔迹 */
   let currentStroke = null;
 
-  /** @type {'idle' | 'drawing' | 'panning'} */
+  /** @type {'idle' | 'drawing' | 'panning' | 'pending_draw'} */
   let gestureState = 'idle';
 
   /** @type {Map<number, { x: number, y: number }>} */
   const activePointers = new Map();
+
+  /**
+   * @typedef {Object} DrawPendingState
+   * @property {number} pointerId
+   * @property {{ x: number, y: number }} startScreen
+   * @property {Point} startLogical
+   * @property {boolean} ready
+   * @property {ReturnType<typeof setTimeout> | null} timerId
+   */
+
+  /** @type {DrawPendingState | null} */
+  let drawPending = null;
 
   /**
    * @typedef {Object} PanStartState
@@ -611,6 +659,63 @@ body {
 
   /** @type {PanStartState | null} */
   let panStart = null;
+
+  /**
+   * 清除待落笔状态
+   */
+  function clearDrawPending() {
+    if (drawPending?.timerId) {
+      clearTimeout(drawPending.timerId);
+    }
+    drawPending = null;
+  }
+
+  /**
+   * @param {Stroke} stroke
+   * @returns {number}
+   */
+  function getStrokePathDistance(stroke) {
+    const pts = stroke.points;
+    if (pts.length < 2) return 0;
+    let total = 0;
+    for (let i = 1; i < pts.length; i++) {
+      total += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    }
+    return total;
+  }
+
+  /**
+   * @param {Stroke | null} stroke
+   * @returns {boolean}
+   */
+  function shouldCommitStroke(stroke) {
+    if (!stroke || stroke.points.length < 2) return false;
+    return getStrokePathDistance(stroke) >= MIN_STROKE_COMMIT_DISTANCE;
+  }
+
+  /**
+   * @returns {number}
+   */
+  function getTwoFingerSpan() {
+    const points = Array.from(activePointers.values());
+    if (points.length < 2) return 0;
+    return Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y);
+  }
+
+  /**
+   * 进入双指平移
+   */
+  function startTwoFingerPan() {
+    clearDrawPending();
+    currentStroke = null;
+    gestureState = 'panning';
+
+    const points = Array.from(activePointers.values());
+    panStart = {
+      offsetX,
+      centerScreen: { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 }
+    };
+  }
 
   /**
    * 更新逻辑画布宽度
@@ -780,6 +885,13 @@ body {
   }
 
   /**
+   * @returns {boolean}
+   */
+  function canUndo() {
+    return strokes.length > 0 || !!(currentStroke && currentStroke.points.length > 0);
+  }
+
+  /**
    * @returns {{ minX: number, minY: number, maxX: number, maxY: number } | null}
    */
   function getStrokeBounds() {
@@ -865,6 +977,7 @@ body {
     btnPanLeft.disabled = offsetX <= 0.5;
     btnPanRight.disabled = offsetX >= maxOffset - 0.5;
     btnFitPreview.disabled = !hasValidStroke();
+    btnUndo.disabled = !canUndo();
 
     placeholder.classList.toggle('is-hidden', hasValidStroke() || (currentStroke && currentStroke.points.length > 0));
 
@@ -897,7 +1010,20 @@ body {
   }
 
   /**
-   * 收起工具栏，恢复「更多签署区域」按钮
+   * 首次扩大签署区域时，提示可双指左右滑动平移
+   */
+  function showExtendPanHintIfFirstTime() {
+    try {
+      if (localStorage.getItem(EXTEND_PAN_HINT_STORAGE_KEY)) return;
+      localStorage.setItem(EXTEND_PAN_HINT_STORAGE_KEY, '1');
+    } catch (_) {
+      return;
+    }
+    showToast('双指左右滑动可平移画布', 'top');
+  }
+
+  /**
+   * 收起工具栏，恢复「扩大签署区域」按钮
    */
   function hideToolsPanel() {
     canvasToolsWrap.classList.remove('is-expanded');
@@ -906,7 +1032,7 @@ body {
   }
 
   /**
-   * 展开工具栏，隐藏「更多签署区域」按钮
+   * 展开工具栏，隐藏「扩大签署区域」按钮
    */
   function showToolsPanel() {
     canvasToolsWrap.classList.add('is-expanded');
@@ -915,18 +1041,47 @@ body {
   }
 
   /**
-   * 点击「更多签署区域」：扩展画板并展开工具栏
+   * 点击「扩大签署区域」：扩展画板并展开工具栏
    */
   function openSigningAreaTools() {
     if (!isExtended) {
       isExtended = true;
       exitPreviewFit();
       updateLogicalWidth();
+      showExtendPanHintIfFirstTime();
       trackEvent('h5_handwriting_canvas_extend', { logicalWidthRatio: LOGICAL_WIDTH_RATIO_EXTENDED });
     }
     showToolsPanel();
     render();
     updateUI();
+  }
+
+  /**
+   * 撤销上一笔，可连续撤销直至全部清空（不支持重做）
+   */
+  function undoLastStroke() {
+    if (!canUndo()) return;
+
+    clearDrawPending();
+
+    if (isPreviewFitActive) {
+      exitPreviewFit();
+    }
+
+    if (currentStroke && currentStroke.points.length > 0) {
+      currentStroke = null;
+      gestureState = 'idle';
+      activePointers.clear();
+    } else if (strokes.length > 0) {
+      strokes.pop();
+    }
+
+    render();
+    updateUI();
+    trackEvent('h5_handwriting_undo', {
+      remainingStrokes: strokes.length,
+      hasStroke: hasValidStroke()
+    });
   }
 
   /**
@@ -937,6 +1092,7 @@ body {
     currentStroke = null;
     gestureState = 'idle';
     activePointers.clear();
+    clearDrawPending();
     isExtended = false;
     exitPreviewFit();
     offsetX = 0;
@@ -1029,6 +1185,7 @@ body {
    */
   function onPointerDown(e) {
     if (!container.contains(e.target)) return;
+    if (e.target.closest('#btnUndo')) return;
 
     if (e.pointerType === 'touch' || e.pointerType === 'pen') {
       e.preventDefault();
@@ -1052,26 +1209,39 @@ body {
 
       exitPreviewFit();
       offsetX = clampOffsetX(offsetX);
-      gestureState = 'drawing';
-      if (logical.x >= 0 && logical.x <= logicalW && logical.y >= 0 && logical.y <= getLogicalH()) {
-        currentStroke = { points: [logical] };
+
+      if (isExtended && e.pointerType === 'touch') {
+        clearDrawPending();
+        gestureState = 'pending_draw';
+        drawPending = {
+          pointerId: e.pointerId,
+          startScreen: { x: e.clientX, y: e.clientY },
+          startLogical: logical,
+          ready: false,
+          timerId: setTimeout(() => {
+            if (drawPending && drawPending.pointerId === e.pointerId) {
+              drawPending.ready = true;
+            }
+          }, TWO_FINGER_GRACE_MS)
+        };
+      } else {
+        gestureState = 'drawing';
+        if (logical.x >= 0 && logical.x <= logicalW && logical.y >= 0 && logical.y <= getLogicalH()) {
+          currentStroke = { points: [logical] };
+        }
+      }
+    } else if (activePointers.size === 2 && isExtended) {
+      if (getTwoFingerSpan() >= MIN_TWO_FINGER_SPAN_PX) {
+        startTwoFingerPan();
+      } else {
+        clearDrawPending();
+        currentStroke = null;
+        gestureState = 'idle';
       }
     } else if (activePointers.size === 2) {
-      if (currentStroke && currentStroke.points.length > 0) {
-        strokes.push(currentStroke);
-      }
       currentStroke = null;
-      gestureState = 'panning';
-
-      const points = Array.from(activePointers.values());
-      panStart = {
-        offsetX,
-        centerScreen: { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 }
-      };
+      gestureState = 'idle';
     } else if (activePointers.size > 2) {
-      if (currentStroke && currentStroke.points.length > 0) {
-        strokes.push(currentStroke);
-      }
       currentStroke = null;
       gestureState = 'idle';
     }
@@ -1092,7 +1262,23 @@ body {
 
     activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-    if (gestureState === 'drawing' && activePointers.size === 1 && currentStroke) {
+    if (gestureState === 'pending_draw' && drawPending && e.pointerId === drawPending.pointerId && activePointers.size === 1) {
+      const screenDist = Math.hypot(
+        e.clientX - drawPending.startScreen.x,
+        e.clientY - drawPending.startScreen.y
+      );
+      if (drawPending.ready || screenDist >= MIN_DRAW_START_SCREEN_PX) {
+        const logical = screenToLogical(e.clientX, e.clientY);
+        currentStroke = { points: [drawPending.startLogical] };
+        if (screenDist >= MIN_DRAW_START_SCREEN_PX) {
+          currentStroke.points.push(logical);
+        }
+        clearDrawPending();
+        gestureState = 'drawing';
+        render();
+        updateUI();
+      }
+    } else if (gestureState === 'drawing' && activePointers.size === 1 && currentStroke) {
       const logical = screenToLogical(e.clientX, e.clientY);
       if (logical.x >= -10 && logical.x <= logicalW + 10 && logical.y >= -10 && logical.y <= getLogicalH() + 10) {
         const last = currentStroke.points[currentStroke.points.length - 1];
@@ -1102,7 +1288,7 @@ body {
       }
       render();
       updateUI();
-    } else if (gestureState === 'panning' && activePointers.size === 2 && panStart) {
+    } else if (gestureState === 'panning' && activePointers.size === 2 && panStart && isExtended) {
       const points = Array.from(activePointers.values());
       const centerX = (points[0].x + points[1].x) / 2;
       const panDx = centerX - panStart.centerScreen.x;
@@ -1111,11 +1297,14 @@ body {
         const prevOffset = offsetX;
         exitPreviewFit();
         offsetX = clampOffsetX(panStart.offsetX - panDx);
+        panStart.centerScreen.x = centerX;
+        panStart.offsetX = offsetX;
         if (Math.abs(offsetX - prevOffset) > 0.5) {
           trackEvent('h5_handwriting_canvas_pan', {
             fromOffsetX: prevOffset,
             toOffsetX: offsetX,
-            hasStroke: hasValidStroke()
+            hasStroke: hasValidStroke(),
+            panType: 'two_finger'
           });
         }
       }
@@ -1137,8 +1326,13 @@ body {
       container.releasePointerCapture(e.pointerId);
     } catch (_) { /* ignore */ }
 
+    if (gestureState === 'pending_draw') {
+      clearDrawPending();
+      gestureState = 'idle';
+    }
+
     if (gestureState === 'drawing' && activePointers.size === 0) {
-      if (currentStroke && currentStroke.points.length > 0) {
+      if (currentStroke && shouldCommitStroke(currentStroke)) {
         strokes.push(currentStroke);
       }
       currentStroke = null;
@@ -1149,6 +1343,7 @@ body {
     }
 
     if (activePointers.size === 0) {
+      clearDrawPending();
       gestureState = 'idle';
       panStart = null;
     }
@@ -1179,6 +1374,11 @@ body {
   btnFitPreview.addEventListener('click', (e) => {
     e.stopPropagation();
     fitViewToStrokes();
+  });
+
+  btnUndo.addEventListener('click', (e) => {
+    e.stopPropagation();
+    undoLastStroke();
   });
 
   btnToggleTools.addEventListener('click', (e) => {
