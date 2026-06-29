@@ -129,18 +129,17 @@ body {
 .canvas-tools__toggle {
   margin: 0;
   padding: 8px 12px;
-  border: 1px solid var(--ns-color-brand);
+  border: none;
   border-radius: var(--ns-radius-xs);
-  background: var(--ns-color-neutral-700);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  background: transparent;
   font-family: var(--ns-font-family);
   font-size: var(--ns-font-size-sm);
   line-height: var(--ns-line-height-sm);
-  color: var(--ns-color-brand);
+  color: var(--ns-color-text-primary);
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
-  transition: opacity 0.2s, transform 0.2s;
+  transition: opacity 0.2s;
 }
 
 .canvas-tools__toggle[hidden] {
