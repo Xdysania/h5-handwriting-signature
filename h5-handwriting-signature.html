@@ -612,6 +612,12 @@ body {
   /** @type {number} 视角水平偏移（逻辑坐标） */
   let offsetX = 0;
 
+  /** @type {number} 视角垂直偏移（逻辑坐标） */
+  let offsetY = 0;
+
+  /** @type {number} 预览适配时的视角缩放（仅影响显示，不影响导出） */
+  let viewScale = 1;
+
   /** @type {Stroke[]} 全部笔迹 */
   let strokes = [];
 
@@ -646,7 +652,14 @@ body {
    * @returns {number}
    */
   function getMaxOffsetX() {
-    return Math.max(0, logicalW - viewW);
+    return Math.max(0, logicalW - viewW / viewScale);
+  }
+
+  /**
+   * @returns {number}
+   */
+  function getMaxOffsetY() {
+    return Math.max(0, getLogicalH() - viewH / viewScale);
   }
 
   /**
@@ -655,6 +668,22 @@ body {
    */
   function clampOffsetX(x) {
     return Math.max(0, Math.min(getMaxOffsetX(), x));
+  }
+
+  /**
+   * @param {number} y
+   * @returns {number}
+   */
+  function clampOffsetY(y) {
+    return Math.max(0, Math.min(getMaxOffsetY(), y));
+  }
+
+  /**
+   * 退出预览适配视角
+   */
+  function exitPreviewFit() {
+    viewScale = 1;
+    offsetY = 0;
   }
 
   /**
@@ -676,8 +705,8 @@ body {
     const canvasX = (localX / rect.width) * viewW;
     const canvasY = (localY / rect.height) * viewH;
     return {
-      x: offsetX + canvasX,
-      y: Math.max(0, Math.min(getLogicalH(), canvasY))
+      x: offsetX + canvasX / viewScale,
+      y: Math.max(0, Math.min(getLogicalH(), offsetY + canvasY / viewScale))
     };
   }
 
@@ -707,7 +736,8 @@ body {
   function render() {
     ctx.clearRect(0, 0, viewW, viewH);
     ctx.save();
-    ctx.translate(-offsetX, 0);
+    ctx.translate(-offsetX * viewScale, -offsetY * viewScale);
+    ctx.scale(viewScale, viewScale);
 
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -827,14 +857,14 @@ body {
    * @returns {boolean}
    */
   function isDefaultView() {
-    return offsetX === 0;
+    return offsetX === 0 && offsetY === 0 && viewScale === 1;
   }
 
   /**
    * @returns {boolean}
    */
   function isViewAdjusted() {
-    return isExtended || offsetX > 0;
+    return isExtended || !isDefaultView();
   }
 
   /**
@@ -864,7 +894,7 @@ body {
    * 更新底部位移滚动条
    */
   function updateScrollbar() {
-    const visibleLogicalW = viewW;
+    const visibleLogicalW = viewW / viewScale;
     const thumbRatio = visibleLogicalW / logicalW;
     const thumbWidth = Math.max(24, thumbRatio * 100);
     const maxThumbLeft = 100 - thumbRatio * 100;
@@ -920,6 +950,7 @@ body {
    */
   function resetView() {
     const fromOffsetX = offsetX;
+    exitPreviewFit();
     offsetX = 0;
     hideToolsPanel();
     render();
@@ -936,6 +967,7 @@ body {
     gestureState = 'idle';
     activePointers.clear();
     isExtended = false;
+    exitPreviewFit();
     offsetX = 0;
     updateLogicalWidth();
     hideToolsPanel();
@@ -949,6 +981,7 @@ body {
    * @param {number} direction 正数右移视角，负数左移视角
    */
   function panByStep(direction) {
+    exitPreviewFit();
     const step = viewW * PAN_STEP_RATIO;
     const prevOffset = offsetX;
     offsetX = clampOffsetX(offsetX + direction * step);
@@ -964,7 +997,7 @@ body {
   }
 
   /**
-   * 将画布视角适配到已书写笔迹区域
+   * 预览：将视角缩放平移，完整展示全部已书写区域
    */
   function fitViewToStrokes() {
     const bounds = getStrokeBounds();
@@ -974,19 +1007,27 @@ body {
     }
 
     const boundsW = bounds.maxX - bounds.minX;
-    const pad = CROP_PADDING;
+    const boundsH = bounds.maxY - bounds.minY;
+    const pad = CROP_PADDING * 2;
 
-    if (boundsW <= viewW) {
-      offsetX = clampOffsetX((bounds.minX + bounds.maxX) / 2 - viewW / 2);
-    } else {
-      offsetX = clampOffsetX(bounds.minX - pad);
-    }
+    const scaleX = viewW / Math.max(boundsW + pad, 1);
+    const scaleY = viewH / Math.max(boundsH + pad, 1);
+    viewScale = Math.min(scaleX, scaleY, 1);
+
+    const centerX = (bounds.minX + bounds.maxX) / 2;
+    const centerY = (bounds.minY + bounds.maxY) / 2;
+
+    offsetX = clampOffsetX(centerX - viewW / (2 * viewScale));
+    offsetY = clampOffsetY(centerY - viewH / (2 * viewScale));
 
     render();
     updateUI();
     trackEvent('h5_handwriting_fit_preview', {
       offsetX,
+      offsetY,
+      viewScale,
       strokeBoundsWidth: boundsW,
+      strokeBoundsHeight: boundsH,
       hasStroke: true
     });
   }
@@ -1021,6 +1062,8 @@ body {
     hideToolsPanel();
 
     if (activePointers.size === 1) {
+      exitPreviewFit();
+      offsetX = clampOffsetX(offsetX);
       gestureState = 'drawing';
       const logical = screenToLogical(e.clientX, e.clientY);
       if (logical.x >= 0 && logical.x <= logicalW && logical.y >= 0 && logical.y <= getLogicalH()) {
@@ -1079,6 +1122,7 @@ body {
 
       if (Math.abs(panDx) > 2) {
         const prevOffset = offsetX;
+        exitPreviewFit();
         offsetX = clampOffsetX(panStart.offsetX - panDx);
         if (Math.abs(offsetX - prevOffset) > 0.5) {
           trackEvent('h5_handwriting_canvas_pan', {
