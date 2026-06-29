@@ -207,8 +207,15 @@ body {
   position: absolute;
   right: 8px;
   bottom: 8px;
-  z-index: 10;
+  z-index: 11;
   display: flex;
+  touch-action: manipulation;
+  pointer-events: auto;
+}
+
+.canvas-undo-wrap .canvas-tools__btn {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* 底部操作栏 */
@@ -475,13 +482,15 @@ body {
           <div class="canvas-container" id="canvasContainer">
             <canvas id="displayCanvas"></canvas>
             <p class="canvas-placeholder" id="canvasPlaceholder">请在此处签名</p>
-            <div class="canvas-undo-wrap canvas-floating-panel">
-              <button type="button" class="canvas-tools__btn" id="btnUndo" title="撤销" aria-label="撤销" disabled>
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
-                  <path d="M18.172 7H11C9.4087 7 7.88258 7.63214 6.75736 8.75736C5.63214 9.88258 5 11.4087 5 13C5 14.5913 5.63214 16.1174 6.75736 17.2426C7.88258 18.3679 9.4087 19 11 19H20V21H11C8.87827 21 6.84344 20.1571 5.34315 18.6569C3.84285 17.1566 3 15.1217 3 13C3 10.8783 3.84285 8.84344 5.34315 7.34315C6.84344 5.84286 8.87827 5 11 5H18.172L15.636 2.464L17.05 1.05L22 6L17.05 10.95L15.636 9.536L18.172 7Z" fill="currentColor"/>
-                </svg>
-              </button>
-            </div>
+          </div>
+
+          <!-- 签署区右下角撤销（独立于画布容器，避免触摸拦截） -->
+          <div class="canvas-undo-wrap canvas-floating-panel" id="canvasUndoWrap">
+            <button type="button" class="canvas-tools__btn" id="btnUndo" title="撤销" aria-label="撤销" disabled>
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
+                <path d="M18.172 7H11C9.4087 7 7.88258 7.63214 6.75736 8.75736C5.63214 9.88258 5 11.4087 5 13C5 14.5913 5.63214 16.1174 6.75736 17.2426C7.88258 18.3679 9.4087 19 11 19H20V21H11C8.87827 21 6.84344 20.1571 5.34315 18.6569C3.84285 17.1566 3 15.1217 3 13C3 10.8783 3.84285 8.84344 5.34315 7.34315C6.84344 5.84286 8.87827 5 11 5H18.172L15.636 2.464L17.05 1.05L22 6L17.05 10.95L15.636 9.536L18.172 7Z" fill="currentColor"/>
+              </svg>
+            </button>
           </div>
         </div>
       </section>
@@ -690,6 +699,7 @@ body {
    */
   function shouldCommitStroke(stroke) {
     if (!stroke || stroke.points.length < 2) return false;
+    if (stroke.points.length >= 3) return true;
     return getStrokePathDistance(stroke) >= MIN_STROKE_COMMIT_DISTANCE;
   }
 
@@ -888,7 +898,7 @@ body {
    * @returns {boolean}
    */
   function canUndo() {
-    return strokes.length > 0 || !!(currentStroke && currentStroke.points.length > 0);
+    return strokes.length > 0 || !!(currentStroke && currentStroke.points.length >= 2);
   }
 
   /**
@@ -1063,17 +1073,21 @@ body {
     if (!canUndo()) return;
 
     clearDrawPending();
+    gestureState = 'idle';
+    panStart = null;
+    activePointers.clear();
 
     if (isPreviewFitActive) {
       exitPreviewFit();
     }
 
-    if (currentStroke && currentStroke.points.length > 0) {
+    if (currentStroke && currentStroke.points.length >= 2) {
       currentStroke = null;
-      gestureState = 'idle';
-      activePointers.clear();
     } else if (strokes.length > 0) {
       strokes.pop();
+    } else {
+      currentStroke = null;
+      return;
     }
 
     render();
@@ -1082,6 +1096,29 @@ body {
       remainingStrokes: strokes.length,
       hasStroke: hasValidStroke()
     });
+  }
+
+  /**
+   * 绑定撤销按钮（兼容移动端触摸与桌面点击）
+   */
+  function bindUndoButton() {
+    let lastUndoAt = 0;
+
+    /**
+     * @param {Event} e
+     */
+    const handleUndo = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const now = Date.now();
+      if (now - lastUndoAt < 350) return;
+      lastUndoAt = now;
+      if (btnUndo.disabled) return;
+      undoLastStroke();
+    };
+
+    btnUndo.addEventListener('click', handleUndo);
+    btnUndo.addEventListener('touchend', handleUndo, { passive: false });
   }
 
   /**
@@ -1185,7 +1222,6 @@ body {
    */
   function onPointerDown(e) {
     if (!container.contains(e.target)) return;
-    if (e.target.closest('#btnUndo')) return;
 
     if (e.pointerType === 'touch' || e.pointerType === 'pen') {
       e.preventDefault();
@@ -1376,10 +1412,7 @@ body {
     fitViewToStrokes();
   });
 
-  btnUndo.addEventListener('click', (e) => {
-    e.stopPropagation();
-    undoLastStroke();
-  });
+  bindUndoButton();
 
   btnToggleTools.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -1434,16 +1467,18 @@ body {
   document.addEventListener('click', (e) => {
     const wrap = document.getElementById('canvasToolsWrap');
     const canvasArea = document.getElementById('canvasContainer');
+    const undoWrap = document.getElementById('canvasUndoWrap');
     if (
       wrap && !wrap.contains(e.target) &&
-      canvasArea && !canvasArea.contains(e.target)
+      canvasArea && !canvasArea.contains(e.target) &&
+      undoWrap && !undoWrap.contains(e.target)
     ) {
       hideToolsPanel();
     }
   });
 
-  container.addEventListener('touchstart', preventDefault, { passive: false });
-  container.addEventListener('touchmove', preventDefault, { passive: false });
+  canvas.addEventListener('touchstart', preventDefault, { passive: false });
+  canvas.addEventListener('touchmove', preventDefault, { passive: false });
   container.addEventListener('contextmenu', (e) => e.preventDefault());
   container.addEventListener('selectstart', (e) => e.preventDefault());
   container.addEventListener('dragstart', (e) => e.preventDefault());
