@@ -21,10 +21,30 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: var(--ns-font-family);
   background: #f5f5f5;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+}
+
+:root {
+  --ns-font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+  --ns-color-brand: #5f11f1;
+  --ns-color-brand-hover: #8f59f4;
+  --ns-color-brand-active: #3f25a7;
+  --ns-color-text-primary: #262626;
+  --ns-color-text-secondary: #333333;
+  --ns-color-text-tertiary: #929292;
+  --ns-color-border: #eaebf0;
+  --ns-color-neutral-700: #ffffff;
+  --ns-font-size-xs: 12px;
+  --ns-font-size-sm: 14px;
+  --ns-font-size-md: 16px;
+  --ns-line-height-xs: 18px;
+  --ns-line-height-sm: 22px;
+  --ns-radius-xs: 2px;
+  --ns-control-height-lg: 40px;
+  --ns-opacity-disabled: 0.4;
 }
 
 .signature-page {
@@ -238,7 +258,7 @@ body {
   position: absolute;
   top: 0;
   height: 100%;
-  background: #7c3aed;
+  background: var(--ns-color-brand);
   border-radius: 2px;
   min-width: 24px;
   transition: left 0.05s linear, width 0.05s linear;
@@ -248,27 +268,109 @@ body {
 .action-bar {
   flex-shrink: 0;
   padding: 12px 16px 16px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--ns-color-border);
+  background: var(--ns-color-neutral-700);
 }
 
 .signature-declaration {
-  font-size: 12px;
-  color: #999;
+  font-size: var(--ns-font-size-xs);
+  color: var(--ns-color-text-tertiary);
   margin-bottom: 12px;
-  line-height: 1.5;
+  line-height: var(--ns-line-height-xs);
+  text-align: left;
 }
 
-.action-buttons {
+.action-bar__toolbar {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
-  justify-content: flex-end;
 }
 
+.action-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+/* NotaSign 按钮基础 */
+.ns-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0 16px;
+  min-height: var(--ns-control-height-lg);
+  border: 1px solid transparent;
+  border-radius: var(--ns-radius-xs);
+  font-family: var(--ns-font-family);
+  font-size: var(--ns-font-size-md);
+  font-weight: 400;
+  line-height: var(--ns-line-height-sm);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s, opacity 0.15s;
+}
+
+.ns-btn:active:not(:disabled) {
+  opacity: 0.88;
+}
+
+.ns-btn--back {
+  padding: 0;
+  min-height: auto;
+  border: none;
+  background: transparent;
+  color: var(--ns-color-text-primary);
+  font-size: var(--ns-font-size-sm);
+  line-height: var(--ns-line-height-sm);
+}
+
+.ns-btn--back .ns-btn__icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.ns-btn--outline-brand {
+  min-width: 88px;
+  background: var(--ns-color-neutral-700);
+  border-color: var(--ns-color-brand);
+  color: var(--ns-color-brand);
+}
+
+.ns-btn--outline-brand:active:not(:disabled) {
+  border-color: var(--ns-color-brand-active);
+  color: var(--ns-color-brand-active);
+}
+
+.ns-btn--primary {
+  min-width: 88px;
+  background: var(--ns-color-brand);
+  border-color: var(--ns-color-brand);
+  color: var(--ns-color-neutral-700);
+}
+
+.ns-btn--primary:active:not(:disabled) {
+  background: var(--ns-color-brand-active);
+  border-color: var(--ns-color-brand-active);
+}
+
+.ns-btn:disabled {
+  cursor: not-allowed;
+  opacity: var(--ns-opacity-disabled);
+  pointer-events: none;
+}
+
+/* 预览弹层等通用按钮 */
 .btn {
   padding: 10px 24px;
-  border-radius: 6px;
-  font-size: 15px;
-  font-weight: 500;
+  border-radius: var(--ns-radius-xs);
+  font-size: var(--ns-font-size-md);
+  font-weight: 400;
   cursor: pointer;
   border: none;
   transition: opacity 0.15s;
@@ -278,20 +380,9 @@ body {
   opacity: 0.85;
 }
 
-.btn--ghost {
-  background: transparent;
-  color: #666;
-}
-
-.btn--outline {
-  background: #fff;
-  color: #333;
-  border: 1px solid #d9d9d9;
-}
-
 .btn--primary {
-  background: #7c3aed;
-  color: #fff;
+  background: var(--ns-color-brand);
+  color: var(--ns-color-neutral-700);
 }
 
 /* 预览弹层 */
@@ -479,12 +570,19 @@ body {
       <!-- 底部操作区 -->
       <footer class="action-bar">
         <p class="signature-declaration">
-          本人确认以上签名为本人亲笔签署，具有法律效力。
+          选择「使用签名」即表示您同意，当您（或您的代理人）在文档（包括具有法律约束力的合同）上使用签名和缩写签名时，此签名和缩写签名将是您的签名和缩写签名的电子呈现形式，可用于各种用途。
         </p>
-        <div class="action-buttons">
-          <button type="button" class="btn btn--ghost" id="btnBack">返回</button>
-          <button type="button" class="btn btn--outline" id="btnRewrite">重写</button>
-          <button type="button" class="btn btn--primary" id="btnComplete">完成</button>
+        <div class="action-bar__toolbar">
+          <button type="button" class="ns-btn ns-btn--back" id="btnBack" aria-label="返回">
+            <svg class="ns-btn__icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M10 3L5 8L10 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>返回</span>
+          </button>
+          <div class="action-bar__actions">
+            <button type="button" class="ns-btn ns-btn--outline-brand" id="btnRewrite">重写</button>
+            <button type="button" class="ns-btn ns-btn--primary" id="btnComplete" disabled>完成</button>
+          </div>
         </div>
       </footer>
     </main>
@@ -569,6 +667,8 @@ body {
   const btnZoomIn = document.getElementById('btnZoomIn');
   /** @type {HTMLButtonElement} */
   const btnResetView = document.getElementById('btnResetView');
+  /** @type {HTMLButtonElement} */
+  const btnComplete = document.getElementById('btnComplete');
 
   /** 可视区尺寸 W × H */
   let viewW = 0;
@@ -834,6 +934,9 @@ body {
     }
 
     placeholder.classList.toggle('is-hidden', hasValidStroke() || (currentStroke && currentStroke.points.length > 0));
+
+    const canComplete = hasValidStroke() || (currentStroke && currentStroke.points.length > 0);
+    btnComplete.disabled = !canComplete;
   }
 
   /**
