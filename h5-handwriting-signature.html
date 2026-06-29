@@ -54,28 +54,12 @@ body {
   min-height: 100dvh;
 }
 
-/* 左侧系统栏 */
-.system-bar {
-  flex: 0 0 56px;
-  background: #1a1a1a;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.system-bar__logo {
-  color: #fff;
-  font-size: 11px;
-  writing-mode: vertical-rl;
-  letter-spacing: 2px;
-  opacity: 0.7;
-}
-
-/* 右侧主面板 */
+/* 主内容面板（全宽） */
 .main-panel {
   flex: 1;
   display: flex;
   flex-direction: column;
+  width: 100%;
   min-width: 0;
   background: #fff;
 }
@@ -461,10 +445,6 @@ body {
 
 /* 横屏优化 */
 @media (orientation: landscape) {
-  .system-bar {
-    flex: 0 0 48px;
-  }
-
   .canvas-section {
     padding: 8px 12px 0;
   }
@@ -495,14 +475,6 @@ body {
 </head>
 <body>
 <div class="signature-page" id="signaturePage">
-    <!-- 左侧系统/容器栏 -->
-    <aside class="system-bar" aria-hidden="true">
-      <div class="system-bar__inner">
-        <span class="system-bar__logo">Nota Sign</span>
-      </div>
-    </aside>
-
-    <!-- 右侧主内容区 -->
     <main class="main-panel">
       <!-- 手写画布区域 -->
       <section class="canvas-section">
