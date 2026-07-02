@@ -282,6 +282,55 @@ body {
   flex-shrink: 0;
 }
 
+.signature-page.is-previewing {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: #fff;
+}
+
+.signature-page.is-previewing .main-panel {
+  height: 100%;
+}
+
+.signature-page.is-previewing .canvas-section {
+  padding: 12px 16px 12px;
+}
+
+.signature-page.is-previewing .canvas-wrapper {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.signature-page.is-previewing .canvas-container {
+  flex: 1;
+  border: 1px dashed #d9d9d9;
+  border-radius: 4px;
+  background: #fafafa;
+}
+
+.signature-page.is-previewing .canvas-tools-wrap,
+.signature-page.is-previewing .canvas-undo-wrap,
+.signature-page.is-previewing .action-bar,
+.signature-page.is-previewing .canvas-scroll-indicator {
+  display: none !important;
+}
+
+.preview-mode-actions {
+  position: static;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding-bottom: 4px;
+}
+
+.signature-page.is-previewing .preview-mode-actions {
+  display: flex;
+}
+
 /* NotaSign 按钮基础 */
 .ns-btn {
   display: inline-flex;
@@ -351,81 +400,6 @@ body {
   cursor: not-allowed;
   opacity: var(--ns-opacity-disabled);
   pointer-events: none;
-}
-
-/* 预览弹层等通用按钮 */
-.btn {
-  padding: 10px 24px;
-  border-radius: var(--ns-radius-xs);
-  font-size: var(--ns-font-size-md);
-  font-weight: 400;
-  cursor: pointer;
-  border: none;
-  transition: opacity 0.15s;
-}
-
-.btn:active {
-  opacity: 0.85;
-}
-
-.btn--primary {
-  background: var(--ns-color-brand);
-  color: var(--ns-color-neutral-700);
-}
-
-/* 预览弹层 */
-.preview-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.preview-modal[hidden] {
-  display: none;
-}
-
-.preview-modal__backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-}
-
-.preview-modal__content {
-  position: relative;
-  background: #fff;
-  border-radius: 12px;
-  padding: 24px;
-  max-width: 90vw;
-  max-height: 85vh;
-  overflow: auto;
-  text-align: center;
-}
-
-.preview-modal__content h3 {
-  font-size: 18px;
-  margin-bottom: 8px;
-  color: #333;
-}
-
-.preview-modal__hint {
-  font-size: 12px;
-  color: #999;
-  margin-bottom: 16px;
-}
-
-.preview-modal__content img {
-  max-width: 100%;
-  max-height: 50vh;
-  border: 1px solid #eee;
-  border-radius: 4px;
-  background: #fafafa;
-}
-
-.preview-modal__actions {
-  margin-top: 20px;
 }
 
 /* Toast */
@@ -529,6 +503,11 @@ body {
               </svg>
             </button>
           </div>
+
+          <div class="preview-mode-actions" id="previewModeActions">
+            <button type="button" class="ns-btn ns-btn--outline-brand" id="btnContinueEdit">继续编辑</button>
+            <button type="button" class="ns-btn ns-btn--primary" id="btnPreviewComplete">完成</button>
+          </div>
         </div>
       </section>
 
@@ -551,19 +530,6 @@ body {
         </div>
       </footer>
     </main>
-  </div>
-
-  <!-- 签名预览弹层（演示完成效果） -->
-  <div class="preview-modal" id="previewModal" hidden>
-    <div class="preview-modal__backdrop" id="previewBackdrop"></div>
-    <div class="preview-modal__content">
-      <h3>签名预览</h3>
-      <p class="preview-modal__hint">按实际笔迹边界裁剪生成签名图片</p>
-      <img id="previewImage" alt="签名预览" />
-      <div class="preview-modal__actions">
-        <button type="button" class="btn btn--primary" id="btnClosePreview">确定</button>
-      </div>
-    </div>
   </div>
 
   <!-- Toast 提示 -->
@@ -615,6 +581,8 @@ body {
   /** @typedef {{ points: Point[] }} Stroke */
 
   /** @type {HTMLElement} */
+  const signaturePage = document.getElementById('signaturePage');
+  /** @type {HTMLElement} */
   const container = document.getElementById('canvasContainer');
   /** @type {HTMLCanvasElement} */
   const canvas = document.getElementById('displayCanvas');
@@ -640,11 +608,6 @@ body {
   let toastHideTimer = null;
   /** @type {ReturnType<typeof setTimeout> | null} */
   let scrollIndicatorHideTimer = null;
-  /** @type {HTMLElement} */
-  const previewModal = document.getElementById('previewModal');
-  /** @type {HTMLImageElement} */
-  const previewImage = document.getElementById('previewImage');
-
   /** @type {HTMLButtonElement} */
   const btnPanLeft = document.getElementById('btnPanLeft');
   /** @type {HTMLButtonElement} */
@@ -655,6 +618,10 @@ body {
   const btnUndo = document.getElementById('btnUndo');
   /** @type {HTMLButtonElement} */
   const btnComplete = document.getElementById('btnComplete');
+  /** @type {HTMLButtonElement} */
+  const btnContinueEdit = document.getElementById('btnContinueEdit');
+  /** @type {HTMLButtonElement} */
+  const btnPreviewComplete = document.getElementById('btnPreviewComplete');
 
   /** 可视区尺寸 W × H */
   let viewW = 0;
@@ -681,6 +648,12 @@ body {
 
   /** @type {boolean} 是否处于全屏预览适配状态 */
   let isPreviewFitActive = false;
+
+  /** @type {{ offsetX: number, offsetY: number } | null} 进入预览前的视角 */
+  let previewViewportBeforeFit = null;
+
+  /** @type {boolean} 进入预览前工具面板是否展开 */
+  let wasToolsPanelExpandedBeforePreview = false;
 
   /** @type {Stroke[]} 全部笔迹 */
   let strokes = [];
@@ -883,6 +856,38 @@ body {
     viewShiftX = 0;
     viewShiftY = 0;
     isPreviewFitActive = false;
+  }
+
+  /**
+   * 进入沉浸式预览态
+   */
+  function enterPreviewMode() {
+    wasToolsPanelExpandedBeforePreview = canvasToolsWrap.classList.contains('is-expanded');
+    signaturePage.classList.add('is-previewing');
+    hideToolsPanel();
+    hideScrollIndicator();
+    resizeCanvas();
+  }
+
+  /**
+   * 退出沉浸式预览态并恢复进入前视角
+   */
+  function exitPreviewMode() {
+    if (!isPreviewFitActive) return;
+    signaturePage.classList.remove('is-previewing');
+    exitPreviewFit();
+    if (previewViewportBeforeFit) {
+      offsetX = clampOffsetX(previewViewportBeforeFit.offsetX);
+      offsetY = clampOffsetY(previewViewportBeforeFit.offsetY);
+    }
+    previewViewportBeforeFit = null;
+    resizeCanvas();
+    if (isExtended && wasToolsPanelExpandedBeforePreview) {
+      showToolsPanel();
+    }
+    wasToolsPanelExpandedBeforePreview = false;
+    render();
+    updateUI();
   }
 
   /**
@@ -1125,7 +1130,7 @@ body {
     } catch (_) {
       return;
     }
-    showToast('点击画布退出预览', 'top');
+    showToast('点击画布返回编辑，也可直接完成', 'top');
   }
 
   /**
@@ -1240,11 +1245,9 @@ body {
     gestureState = 'idle';
     activePointers.clear();
     clearDrawPending();
-    isExtended = false;
     exitPreviewFit();
     offsetX = 0;
     updateLogicalWidth();
-    hideToolsPanel();
     hideScrollIndicator();
     render();
     updateUI();
@@ -1281,6 +1284,9 @@ body {
       showToast('请先签名');
       return;
     }
+
+    previewViewportBeforeFit = { offsetX, offsetY };
+    enterPreviewMode();
 
     const boundsW = bounds.maxX - bounds.minX;
     const boundsH = bounds.maxY - bounds.minY;
@@ -1347,11 +1353,7 @@ body {
       const logical = screenToLogical(e.clientX, e.clientY);
 
       if (isPreviewFitActive) {
-        exitPreviewFitAtAnchor(canvasX, canvasY, logical);
-        gestureState = 'idle';
-        currentStroke = null;
-        render();
-        updateUI();
+        exitPreviewMode();
         return;
       }
 
@@ -1535,8 +1537,18 @@ body {
   });
 
   document.getElementById('btnRewrite').addEventListener('click', () => {
-    if (hasValidStroke() && !confirm('确定要清空当前签名并重新书写吗？')) return;
     rewrite();
+  });
+
+  btnContinueEdit.addEventListener('click', (e) => {
+    e.stopPropagation();
+    exitPreviewMode();
+  });
+
+  btnPreviewComplete.addEventListener('click', (e) => {
+    e.stopPropagation();
+    exitPreviewMode();
+    btnComplete.click();
   });
 
   document.getElementById('btnComplete').addEventListener('click', () => {
@@ -1559,24 +1571,15 @@ body {
       strokeBoundsWidth: bounds ? bounds.maxX - bounds.minX : 0,
       strokeBoundsHeight: bounds ? bounds.maxY - bounds.minY : 0,
       isOutOfViewport: bounds ? (bounds.minX < offsetX || bounds.maxX > offsetX + viewW) : false,
-      cropApplied: true
+      cropApplied: true,
+      dataUrlLength: dataUrl.length
     });
-
-    previewImage.src = dataUrl;
-    previewModal.hidden = false;
+    showToast('签名已完成');
   });
 
   document.getElementById('btnBack').addEventListener('click', () => {
     if (hasValidStroke() && !confirm('签名尚未提交，确定返回吗？')) return;
     showToast('已返回');
-  });
-
-  document.getElementById('btnClosePreview').addEventListener('click', () => {
-    previewModal.hidden = true;
-  });
-
-  document.getElementById('previewBackdrop').addEventListener('click', () => {
-    previewModal.hidden = true;
   });
 
   document.addEventListener('click', (e) => {
